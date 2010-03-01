@@ -1,0 +1,105 @@
+<?php
+// $Id$
+
+/**
+ * Implementation of hook_help().
+ */
+function css_emimage_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#css_emimage':
+      $output = '<p>'. t('Replaces image URLs in aggregated CSS files with embedded images when <em>CSS optimization</em> has been enabled in the <a href="@performance">Performance settings</a>.', array('@performance' => url('admin/settings/performance'))) .'</p>';
+      return $output;
+  }
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function css_emimage_form_alter(&$form, $form_state, $form_id) {
+  if ($form_id == 'system_performance_settings') {
+    $form['bandwidth_optimizations']['preprocess_css']['#description'] .= t(' Once the CSS files have been aggregated, image URLs will be replaced with embedded images.');
+    $form['bandwidth_optimizations']['css_emimage_ielimit'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Only embed images less than 32KB'),
+      '#description' => t('Internet Explorer does not support embedded images larger than 32KB. If you are not concerned about IE support you can ignore this limitation; otherwise, it is best to leave this checked.'),
+      '#default_value' => variable_get('css_emimage_ielimit', 1),
+      '#weight' => $form['bandwidth_optimizations']['preprocess_css']['#weight'] + .1,
+    );
+  }
+}
+
+/**
+ * Implementation of hook_theme_registry_alter().
+ * 
+ * Make css_emimage's page preprocess function run after everything else.
+ * If the css_gzip module is installed, move it's preprocess function after ours.
+ */
+function css_emimage_theme_registry_alter(&$theme_registry) {
+  if (isset($theme_registry['page'])) {
+    // Move our preprocess function after everything else.
+    if ($key = array_search('css_emimage_preprocess_page', $theme_registry['page']['preprocess functions'])) {
+      unset($theme_registry['page']['preprocess functions'][$key]);
+    }
+    $theme_registry['page']['preprocess functions'][] = 'css_emimage_preprocess_page';
+    // Move css_gzip's preprocess function after ours.
+    if ($key = array_search('css_gzip_preprocess_page', $theme_registry['page']['preprocess functions'])) {
+      unset($theme_registry['page']['preprocess functions'][$key]);
+      $theme_registry['page']['preprocess functions'][] = 'css_gzip_preprocess_page';
+    }
+  } 
+}
+
+/**
+ * Implementation of hook_preprocess_hook().
+ * 
+ * Replace URLs with data URIs in aggregated CSS files if CSS optimization is turned on.
+ */
+function css_emimage_preprocess_page(&$variables) {
+  if (!empty($variables['styles']) && variable_get('preprocess_css', 0)) {
+    $variables['styles'] = _css_emimage_process($variables['styles']);
+  }
+}
+
+/**
+ * Helper function to replace URLs with data URIs.
+ */
+function _css_emimage_process($styles) {
+  $path_to_files_directory = base_path() . file_directory_path();
+  $pattern = '/href="' . preg_quote($path_to_files_directory, '/') . '(.*?)"/';
+  if (preg_match_all($pattern, $styles, $matches) > 0) {
+    foreach ($matches[1] as $aggregated_file_name) {
+      $datauri_file_name = str_replace('.css', '.emimage.css', $aggregated_file_name);
+      $datauri_file_path = file_directory_path() . $datauri_file_name;
+      
+      // Save the processed CSS file if it doesn't exist yet.
+      if (!file_exists($datauri_file_path)) {
+        $contents = file_get_contents(file_directory_path() . $aggregated_file_name);
+        $contents = preg_replace_callback('/[^}]+{[^{}]+(url\([\'"]?'. preg_quote(base_path(), '/') .'([^\'")]+)[\'"]?\))[^{}]*}/i', '_css_emimage_replace', $contents);
+        
+        // Save the contents to the new CSS file.
+        file_save_data($contents, $datauri_file_path, FILE_EXISTS_REPLACE);
+      }
+      
+      // Replace the aggregated file with the processed CSS file.
+      $styles = str_replace($aggregated_file_name, $datauri_file_name, $styles);
+    }
+  }
+  
+  return $styles;
+}
+
+/**
+ * preg_replace_callback() callback to replace URLs with data URIs.
+ */
+function _css_emimage_replace($matches) {
+  $replacement = $matches[0];
+  if ($image = image_get_info($matches[2])) {
+    $ielimit = variable_get('css_emimage_ielimit', 1); // only embed images less than 32KB, thanks IE
+    if (!$ielimit || ($ielimit && $image['file_size'] < 32768)) {
+      $replacement = str_replace($matches[1], 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($matches[2])). ')', $replacement);
+      // Overrides for IE6 and IE7
+      $replacement .= ' * html '. $matches[0] .' *+html '. $matches[0];
+    }
+  }
+  return $replacement;
+}

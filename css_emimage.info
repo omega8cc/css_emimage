@@ -1,0 +1,5 @@
+; $Id$
+name = CSS Embedded Images
+description = Replaces image URLs in CSS files with embedded images when CSS optimization is enabled.
+core = 6.x
+php = 5
