@@ -95,7 +95,7 @@ function _css_emimage_replace($matches) {
   $replacement = $matches[0];
   if ($image = image_get_info($matches[2])) {
     $ielimit = variable_get('css_emimage_ielimit', 1); // only embed images less than 32KB, thanks IE
-    if (!$ielimit || ($ielimit && $image['file_size'] < 32768)) {
+    if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
       $replacement = str_replace($matches[1], 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($matches[2])). ')', $replacement);
       // Overrides for IE6 and IE7
       $replacement .= ' * html '. $matches[0] .' *+html '. $matches[0];
