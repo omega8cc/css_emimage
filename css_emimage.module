@@ -65,23 +65,44 @@ function css_emimage_preprocess_page(&$variables) {
  */
 function _css_emimage_process($styles) {
   $path_to_files_directory = base_path() . file_directory_path();
-  $pattern = '/href="' . preg_quote($path_to_files_directory, '/') . '(.*?)"/';
+  $pattern = '/<link(.*?)href="' . preg_quote($path_to_files_directory, '/') . '(.*?)"(.*?)\\/>/';
   if (preg_match_all($pattern, $styles, $matches) > 0) {
-    foreach ($matches[1] as $aggregated_file_name) {
-      $datauri_file_name = str_replace('.css', '.emimage.css', $aggregated_file_name);
-      $datauri_file_path = file_directory_path() . $datauri_file_name;
+    foreach ($matches[2] as $i => $aggregated_file_name) {
+      $aggregated_file_path = file_directory_path() . $aggregated_file_name;
+      $emimage_file_name = str_replace('.css', '.emimage.css', $aggregated_file_name);
+      $emimage_file_path = file_directory_path() . $emimage_file_name;
       
-      // Save the processed CSS file if it doesn't exist yet.
-      if (!file_exists($datauri_file_path)) {
+      // Save the processed CSS file if it doesn't exist yet
+      if (!file_exists($emimage_file_path)) {
+        _css_emimage_collect(null, true);
         $contents = file_get_contents(file_directory_path() . $aggregated_file_name);
-        $contents = preg_replace_callback('/[^}]+{[^{}]+(url\([\'"]?'. preg_quote(base_path(), '/') .'([^\'")]+)[\'"]?\))[^{}]*}/i', '_css_emimage_replace', $contents);
+        $contents = preg_replace_callback('/([^}\\r\\n]+){[^{}]+(background|background-image|list-style|list-style-image):[^{}]*(url\([\'"]?'. preg_quote(base_path(), '/') .'([^\'")]+)[\'"]?\))[^{}]*}/i', '_css_emimage_replace', $contents);
         
-        // Save the contents to the new CSS file.
-        file_save_data($contents, $datauri_file_path, FILE_EXISTS_REPLACE);
+        $datauri_css = '';
+        foreach (_css_emimage_collect() as $data) {
+          foreach ($data['css'] as $property => $selectors) {
+            $datauri_css .= implode(',', $selectors) .'{'. $property .':'. $data['datauri'] ."}\n";
+            // Overrides for IE6 and IE7
+            foreach ($selectors as $i => $selector) {
+              $datauri_css .= " * html $selector {". $property .':'. $data['url'] ."}\n";
+              $datauri_css .= " *+html $selector {". $property .':'. $data['url'] ."}\n";
+            }
+          }
+        }
+        
+        // TODO option to save to one file or multiple files
+        
+        // Save the contents to the new CSS file
+        // $datauri_css may be empty, but we use the file as a flag to
+        // prevent processing the CSS on every uncached request
+        file_save_data($contents, $aggregated_file_path, FILE_EXISTS_REPLACE);
+        file_save_data($datauri_css, $emimage_file_path, FILE_EXISTS_REPLACE);
       }
       
-      // Replace the aggregated file with the processed CSS file.
-      $styles = str_replace($aggregated_file_name, $datauri_file_name, $styles);
+      // Replace the aggregated file with the processed CSS file
+      if (file_exists($emimage_file_path) && filesize($emimage_file_path)) {
+        $styles = str_replace($matches[0][$i], $matches[0][$i] ."\n". str_replace($aggregated_file_name, $emimage_file_name, $matches[0][$i]), $styles);
+      }
     }
   }
   
@@ -92,14 +113,37 @@ function _css_emimage_process($styles) {
  * preg_replace_callback() callback to replace URLs with data URIs.
  */
 function _css_emimage_replace($matches) {
-  $replacement = $matches[0];
-  if ($image = image_get_info($matches[2])) {
+  list($declaration, $selector, $property, $url, $file) = $matches;
+  if ($image = image_get_info($file)) {
     $ielimit = variable_get('css_emimage_ielimit', 1); // only embed images less than 32KB, thanks IE
     if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
-      $replacement = str_replace($matches[1], 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($matches[2])). ')', $replacement);
-      // Overrides for IE6 and IE7
-      $replacement .= ' * html '. $matches[0] .' *+html '. $matches[0];
+      $declaration = str_replace($url, 'none', $declaration);
+      _css_emimage_collect($matches);
     }
   }
-  return $replacement;
+  return $declaration;
+}
+
+function _css_emimage_collect($matches = NULL, $reset = FALSE) {
+  static $data = array();
+  if ($reset) {
+    $data = array();
+  }
+  if (is_null($matches)) {
+    return $data;
+  }
+  
+  list($declaration, $selector, $property, $url, $file) = $matches;
+  // Create the data URI
+  if (!isset($data[$file]['datauri'])) {
+    $data[$file]['datauri'] = 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')';
+    $data[$file]['url'] = $url;
+  }
+  // Normalize the CSS property name so we can collapse as many declarations as possible
+  if ($property == 'background' || $property == 'list-style') {
+    $property .= '-image';
+  }
+  $data[$file]['css'][$property][] = $selector;
+  
+  return $data;
 }
