@@ -124,6 +124,9 @@ function _css_emimage_replace($matches) {
   return $declaration;
 }
 
+/**
+ * Helper function to collect CSS declarations to replace with data URIs.
+ */
 function _css_emimage_collect($matches = NULL, $reset = FALSE) {
   static $data = array();
   if ($reset) {
