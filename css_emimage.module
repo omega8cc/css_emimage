@@ -74,7 +74,7 @@ function _css_emimage_process($styles) {
       
       // Save the processed CSS file if it doesn't exist yet
       if (!file_exists($emimage_file_path)) {
-        _css_emimage_collect(null, true);
+        _css_emimage_collect(null, null, true);
         $contents = file_get_contents(file_directory_path() . $aggregated_file_name);
         $contents = preg_replace_callback('/([^}\\r\\n]+){[^{}]+(background|background-image|list-style|list-style-image):[^{}]*(url\([\'"]?'. preg_quote(base_path(), '/') .'([^\'")]+)[\'"]?\))[^{}]*}/i', '_css_emimage_replace', $contents);
         
@@ -118,7 +118,7 @@ function _css_emimage_replace($matches) {
     $ielimit = variable_get('css_emimage_ielimit', 1); // only embed images less than 32KB, thanks IE
     if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
       $declaration = str_replace($url, 'none', $declaration);
-      _css_emimage_collect($matches);
+      _css_emimage_collect($matches, $image);
     }
   }
   return $declaration;
@@ -127,7 +127,7 @@ function _css_emimage_replace($matches) {
 /**
  * Helper function to collect CSS declarations to replace with data URIs.
  */
-function _css_emimage_collect($matches = NULL, $reset = FALSE) {
+function _css_emimage_collect($matches = NULL, $image = NULL, $reset = FALSE) {
   static $data = array();
   if ($reset) {
     $data = array();
@@ -136,17 +136,19 @@ function _css_emimage_collect($matches = NULL, $reset = FALSE) {
     return $data;
   }
   
-  list($declaration, $selector, $property, $url, $file) = $matches;
-  // Create the data URI
-  if (!isset($data[$file]['datauri'])) {
-    $data[$file]['datauri'] = 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')';
-    $data[$file]['url'] = $url;
+  if (is_array($matches) && is_array($image)) {
+    list($declaration, $selector, $property, $url, $file) = $matches;
+    // Create the data URI
+    if (!isset($data[$file]['datauri'])) {
+      $data[$file]['datauri'] = 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')';
+      $data[$file]['url'] = $url;
+    }
+    // Normalize the CSS property name so we can collapse as many declarations as possible
+    if ($property == 'background' || $property == 'list-style') {
+      $property .= '-image';
+    }
+    $data[$file]['css'][$property][] = $selector;
   }
-  // Normalize the CSS property name so we can collapse as many declarations as possible
-  if ($property == 'background' || $property == 'list-style') {
-    $property .= '-image';
-  }
-  $data[$file]['css'][$property][] = $selector;
   
   return $data;
 }
