@@ -46,7 +46,7 @@ function css_emimage_theme_registry_alter(&$theme_registry) {
       unset($theme_registry['page']['preprocess functions'][$key]);
       $theme_registry['page']['preprocess functions'][] = 'css_gzip_preprocess_page';
     }
-  } 
+  }
 }
 
 /**
@@ -65,7 +65,7 @@ function css_emimage_preprocess_page(&$variables) {
  */
 function _css_emimage_process($styles) {
   $path_to_files_directory = base_path() . file_directory_path();
-  $pattern = '/<link(.*?)href="' . preg_quote($path_to_files_directory, '/') . '(.*?)"(.*?)\\/>/';
+  $pattern = '/<link(.*?)href=".*?' . preg_quote($path_to_files_directory, '/') . '(.*?)"(.*?)\\/>/';
   if (preg_match_all($pattern, $styles, $matches) > 0) {
     foreach ($matches[2] as $i => $aggregated_file_name) {
       $aggregated_file_path = file_directory_path() . $aggregated_file_name;
@@ -75,7 +75,7 @@ function _css_emimage_process($styles) {
       // Save the processed CSS file if it doesn't exist yet
       if (!file_exists($emimage_file_path)) {
         _css_emimage_collect(null, null, true);
-        $contents = file_get_contents(file_directory_path() . $aggregated_file_name);
+        $contents = file_get_contents($aggregated_file_path);
         $contents = preg_replace_callback('/([^}\\r\\n]+){[^{}]+(background|background-image|list-style|list-style-image):[^{}]*(url\([\'"]?'. preg_quote(base_path(), '/') .'([^\'")]+)[\'"]?\))[^{}]*}/i', '_css_emimage_replace', $contents);
         
         $datauri_css = '';
