@@ -81,11 +81,15 @@ function _css_emimage_process($styles) {
         $datauri_css = '';
         foreach (_css_emimage_collect() as $data) {
           foreach ($data['css'] as $property => $selectors) {
-            $datauri_css .= implode(',', $selectors) .'{'. $property .':'. $data['datauri'] ."}\n";
+            $datauri_css .= implode(',', $selectors) .'{'. $property .':'. $data['datauri'] .";}\n";
             // Overrides for IE6 and IE7
             foreach ($selectors as $i => $selector) {
-              $datauri_css .= " * html $selector {". $property .':'. $data['url'] ."}\n";
-              $datauri_css .= " *+html $selector {". $property .':'. $data['url'] ."}\n";
+              $prefix = 'html ';
+              if (strpos($selector, 'html') === 0) {
+                $prefix = '';
+              }
+              $datauri_css .= " * $prefix$selector {". $property .':'. $data['url'] .";}\n";
+              $datauri_css .= " *+$prefix$selector {". $property .':'. $data['url'] .";}\n";
             }
           }
         }
