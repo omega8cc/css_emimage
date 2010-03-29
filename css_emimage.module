@@ -74,23 +74,19 @@ function _css_emimage_process($styles) {
       
       // Save the processed CSS file if it doesn't exist yet
       if (!file_exists($emimage_file_path)) {
-        _css_emimage_collect(null, null, true);
+        _css_emimage_collect(null, true);
         $contents = file_get_contents($aggregated_file_path);
-        $contents = preg_replace_callback('/([^}\\r\\n]+){[^{}]+(background|background-image|list-style|list-style-image):[^{}]*(url\([\'"]?'. preg_quote(base_path(), '/') .'([^\'")]+)[\'"]?\))[^{}]*}/i', '_css_emimage_replace', $contents);
+        $pattern = '/([^{}]+){([^{}]*?(background(?:-image)?|list-style(?:-image)?):[^{};)]*?(?:none|url\([\'"]?'. preg_quote(base_path(), '/') .'.+?[\'"]?\)))+[^{}]*}/i';
+        $contents = preg_replace_callback($pattern, '_css_emimage_replace', $contents);
         
         $datauri_css = '';
         foreach (_css_emimage_collect() as $data) {
-          foreach ($data['css'] as $property => $selectors) {
-            $datauri_css .= implode(',', $selectors) .'{'. $property .':'. $data['datauri'] .";}\n";
-            // Overrides for IE6 and IE7
-            foreach ($selectors as $i => $selector) {
-              $prefix = 'html ';
-              if (strpos($selector, 'html') === 0) {
-                $prefix = '';
-              }
-              $datauri_css .= " * $prefix$selector {". $property .':'. $data['url'] .";}\n";
-              $datauri_css .= " *+$prefix$selector {". $property .':'. $data['url'] .";}\n";
-            }
+          if ($data['datauri']) {
+            $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] .";}\n";
+          }
+          else if ($datauri_css) {
+            // Only add these if the CSS has at least one data URI
+            $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] .";}\n";
           }
         }
         
@@ -117,12 +113,21 @@ function _css_emimage_process($styles) {
  * preg_replace_callback() callback to replace URLs with data URIs.
  */
 function _css_emimage_replace($matches) {
-  list($declaration, $selector, $property, $url, $file) = $matches;
-  if ($image = image_get_info($file)) {
-    $ielimit = variable_get('css_emimage_ielimit', 1); // only embed images less than 32KB, thanks IE
-    if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
-      $declaration = str_replace($url, 'none', $declaration);
-      _css_emimage_collect($matches, $image);
+  list($declaration, $selector, $properties) = $matches;
+  $pattern = '/(background(?:-image)?|list-style(?:-image)?):[^{};)]*?((?:none|url\([\'"]?'. preg_quote(base_path(), '/') .'(.+?)[\'"]?\)))/i';
+  preg_match_all($pattern, $properties, $matches);
+  foreach ($matches[1] as $i => $property) {
+    $url = $matches[2][$i];
+    $file = $matches[3][$i];
+    if ($file && ($image = image_get_info($file))) {
+      $ielimit = variable_get('css_emimage_ielimit', 1); // only embed data URIs less than 32KB, thanks IE
+      if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
+        $declaration = str_replace($url, 'none', $declaration);
+        _css_emimage_collect(array($selector, $property, $url, $file, $image));
+      }
+    }
+    else {
+      _css_emimage_collect(array($selector, $property, $url, $file, NULL));
     }
   }
   return $declaration;
@@ -131,27 +136,44 @@ function _css_emimage_replace($matches) {
 /**
  * Helper function to collect CSS declarations to replace with data URIs.
  */
-function _css_emimage_collect($matches = NULL, $image = NULL, $reset = FALSE) {
+function _css_emimage_collect($info = NULL, $reset = FALSE) {
   static $data = array();
   if ($reset) {
     $data = array();
   }
-  if (is_null($matches)) {
+  if (is_null($info)) {
     return $data;
   }
   
-  if (is_array($matches) && is_array($image)) {
-    list($declaration, $selector, $property, $url, $file) = $matches;
-    // Create the data URI
-    if (!isset($data[$file]['datauri'])) {
-      $data[$file]['datauri'] = 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')';
-      $data[$file]['url'] = $url;
-    }
-    // Normalize the CSS property name so we can collapse as many declarations as possible
+  if (is_array($info)) {
+    list($selector, $property, $url, $file, $image) = $info;
+    
+    $selector = trim($selector);
+    
+    // Normalize the CSS property name - allows us to collapse declarations in
+    // some cases, and generated CSS is more consistent
     if ($property == 'background' || $property == 'list-style') {
       $property .= '-image';
     }
-    $data[$file]['css'][$property][] = $selector;
+    
+    $current = array_pop($data);
+    switch (true) {
+      case $current && ($current['property'] != $property || $current['file'] != $file):
+        array_push($data, $current);
+      case !$current:
+        $current = array(
+          'selectors' => array($selector),
+          'property' => $property,
+          'url' => $url,
+          'file' => $file,
+          'datauri' => $image ? 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')' : '',
+        );
+        break;
+      default:
+        $current['selectors'][] = $selector;
+        break;
+    }
+    array_push($data, $current);
   }
   
   return $data;
