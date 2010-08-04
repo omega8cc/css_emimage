@@ -37,12 +37,12 @@ function css_emimage_form_alter(&$form, $form_state, $form_id) {
 function css_emimage_theme_registry_alter(&$theme_registry) {
   if (isset($theme_registry['page'])) {
     // Move our preprocess function after everything else.
-    if ($key = array_search('css_emimage_preprocess_page', $theme_registry['page']['preprocess functions'])) {
+    if (($key = array_search('css_emimage_preprocess_page', $theme_registry['page']['preprocess functions'])) !== FALSE) {
       unset($theme_registry['page']['preprocess functions'][$key]);
     }
     $theme_registry['page']['preprocess functions'][] = 'css_emimage_preprocess_page';
     // Move css_gzip's preprocess function after ours.
-    if ($key = array_search('css_gzip_preprocess_page', $theme_registry['page']['preprocess functions'])) {
+    if (($key = array_search('css_gzip_preprocess_page', $theme_registry['page']['preprocess functions'])) !== FALSE) {
       unset($theme_registry['page']['preprocess functions'][$key]);
       $theme_registry['page']['preprocess functions'][] = 'css_gzip_preprocess_page';
     }
