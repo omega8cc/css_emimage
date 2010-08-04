@@ -76,17 +76,17 @@ function _css_emimage_process($styles) {
       if (!file_exists($emimage_file_path)) {
         _css_emimage_collect(null, true);
         $contents = file_get_contents($aggregated_file_path);
-        $pattern = '/([^{}]+){([^{}]*?(background(?:-image)?|list-style(?:-image)?):[^{};)]*?(?:none|url\([\'"]?'. preg_quote(base_path(), '/') .'.+?[\'"]?\)))+[^{}]*}/i';
+        $pattern = '/([^{}]+){([^{}]*?(background(?:-image)?|list-style(?:-image)?):[^{};)]*?(?:none|url\([\'"]?.+?[\'"]?\))[^{}]*)}/i';
         $contents = preg_replace_callback($pattern, '_css_emimage_replace', $contents);
         
         $datauri_css = '';
         foreach (_css_emimage_collect() as $data) {
           if ($data['datauri']) {
-            $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] .";}\n";
+            $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
           }
           else if ($datauri_css) {
             // Only add these if the CSS has at least one data URI
-            $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] .";}\n";
+            $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] . ($data['important'] ? ' !important' : '') .";}\n";
           }
         }
         
@@ -113,24 +113,27 @@ function _css_emimage_process($styles) {
  * preg_replace_callback() callback to replace URLs with data URIs.
  */
 function _css_emimage_replace($matches) {
+print_r($matches);
   list($declaration, $selector, $properties) = $matches;
-  $pattern = '/(background(?:-image)?|list-style(?:-image)?):[^{};)]*?((?:none|url\([\'"]?'. preg_quote(base_path(), '/') .'(.+?)[\'"]?\)))/i';
+  $pattern = '/(background(?:-image)?|list-style(?:-image)?):[^{};)]*?((?:none|url\([\'"]?(.+?)[\'"]?\)))([^{};]*)/i';
   preg_match_all($pattern, $properties, $matches);
+print_r($matches);
   foreach ($matches[1] as $i => $property) {
     $url = $matches[2][$i];
     $file = $matches[3][$i];
-    if ($file && ($image = image_get_info($file))) {
+    $important = stripos($matches[4][$i], '!important') !== FALSE;
+    if ($file && (strpos($file, base_path()) === 0) && ($image = image_get_info($file = substr($file, strlen(base_path()))))) {
       $ielimit = variable_get('css_emimage_ielimit', 1); // only embed data URIs less than 32KB, thanks IE
       if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
         $declaration = str_replace($url, 'none', $declaration);
-        _css_emimage_collect(array($selector, $property, $url, $file, $image));
+        _css_emimage_collect(array($selector, $property, $url, $file, $important, $image));
       }
       else {
-        _css_emimage_collect(array($selector, $property, $url, $file, NULL));
+        _css_emimage_collect(array($selector, $property, $url, $file, $important, NULL));
       }
     }
     else {
-      _css_emimage_collect(array($selector, $property, $url, $file, NULL));
+      _css_emimage_collect(array($selector, $property, $url, $file, $important, NULL));
     }
   }
   return $declaration;
@@ -149,7 +152,7 @@ function _css_emimage_collect($info = NULL, $reset = FALSE) {
   }
   
   if (is_array($info)) {
-    list($selector, $property, $url, $file, $image) = $info;
+    list($selector, $property, $url, $file, $important, $image) = $info;
     
     $selector = trim($selector);
     
@@ -161,7 +164,7 @@ function _css_emimage_collect($info = NULL, $reset = FALSE) {
     
     $current = array_pop($data);
     switch (true) {
-      case $current && ($current['property'] != $property || $current['file'] != $file):
+      case $current && ($current['property'] != $property || $current['file'] != $file || $current['important'] != $important):
         array_push($data, $current);
       case !$current:
         $current = array(
@@ -169,6 +172,7 @@ function _css_emimage_collect($info = NULL, $reset = FALSE) {
           'property' => $property,
           'url' => $url,
           'file' => $file,
+          'important' => $important,
           'datauri' => $image ? 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')' : '',
         );
         break;
@@ -181,3 +185,4 @@ function _css_emimage_collect($info = NULL, $reset = FALSE) {
   
   return $data;
 }
+
