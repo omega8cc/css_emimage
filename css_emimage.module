@@ -68,10 +68,12 @@ function _css_emimage_process($styles) {
   $pattern = '/<link(.*?)href=".*?' . preg_quote($path_to_files_directory, '/') . '(.*?)"(.*?)\\/>/';
   if (preg_match_all($pattern, $styles, $matches) > 0) {
     foreach ($matches[2] as $i => $aggregated_file_name) {
+      $file_path = file_directory_path();
+      $aggregated_file_path = $file_path . $aggregated_file_name;
       $orig_file_name = str_replace('.css', '.orig.css', $aggregated_file_name);
-      $aggregated_file_path = file_directory_path() . $aggregated_file_name;
+      $orig_file_path = $file_path . $orig_file_name;
       $emimage_file_name = str_replace('.css', '.emimage.css', $aggregated_file_name);
-      $emimage_file_path = file_directory_path() . $emimage_file_name;
+      $emimage_file_path = $file_path . $emimage_file_name;
       
       // Save the processed CSS file if it doesn't exist yet
       if (!file_exists($emimage_file_path)) {
@@ -79,7 +81,7 @@ function _css_emimage_process($styles) {
         $contents = file_get_contents($aggregated_file_path);
         
         // Save a copy of the original CSS for IE < 8 fallback
-        file_save_data($contents, $orig_file_name, FILE_EXISTS_REPLACE);
+        file_save_data($contents, $orig_file_path, FILE_EXISTS_REPLACE);
         
         $pattern = '/([^{}]+){([^{}]*?(background(?:-image)?|list-style(?:-image)?):[^{};)]*?(?:none|url\([\'"]?.+?[\'"]?\))[^{}]*)}/i';
         $contents = preg_replace_callback($pattern, '_css_emimage_replace', $contents);
@@ -105,9 +107,9 @@ function _css_emimage_process($styles) {
       // Replace the aggregated file with the processed CSS file
       if (file_exists($emimage_file_path) && filesize($emimage_file_path)) {
         $styles = str_replace($matches[0][$i],
-          "<!--[if lte IE 7]>\n". str_replace($aggregated_file_name, $orig_file_name, $matches[0][$i]) ."\n<![endif]-->\n".
-          "<!--[if gte IE 8]><!-->\n". $matches[0][$i] ."\n". str_replace($aggregated_file_name, $emimage_file_name, $matches[0][$i]) ."\n<!--<![endif]-->"
-          , $styles);
+          "<!--[if gte IE 8]><!-->\n". $matches[0][$i] ."\n". str_replace($aggregated_file_name, $emimage_file_name, $matches[0][$i]) ."\n<!--<![endif]-->\n"
+          . "<!--[if lt IE 8]>\n". str_replace($aggregated_file_name, $orig_file_name, $matches[0][$i]) ."\n<![endif]-->",
+          $styles);
       }
     }
   }
