@@ -65,7 +65,7 @@ function css_emimage_preprocess_page(&$variables) {
  */
 function _css_emimage_process($styles) {
   $path_to_files_directory = base_path() . file_directory_path();
-  $pattern = '/<link(.*?)href=".*?' . preg_quote($path_to_files_directory, '/') . '(.*?)"(.*?)\\/>/';
+  $pattern = '/<link(.*?)href=".*?'. preg_quote($path_to_files_directory, '/') .'(.*?)(\?[^"]*)?"(.*?)\\/>/';
   if (preg_match_all($pattern, $styles, $matches) > 0) {
     foreach ($matches[2] as $i => $aggregated_file_name) {
       $file_path = file_directory_path();
