@@ -19,10 +19,10 @@ Installation
 ------------
 
  1) Copy the CSS Embedded Images module to sites/all/modules.
- 
+
  2) Enable it in admin/build/modules.
- 
+
  3) Enable CSS Optimization in admin/settings/performance.
- 
- 4) See that the aggregated CSS file now ends with ".emimage.css",
-    and contains embedded images.
+
+ 4) See that your pages now include aggregated CSS files ending with
+    ".emimage.css", and those contain embedded images.
