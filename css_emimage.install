@@ -2,6 +2,11 @@
 // $Id$
 
 /**
+ * @file
+ * Install, update, and uninstall functions for the css_emimage module.
+ */
+
+/**
  * Implementation of hook_install().
  */
 function css_emimage_install() {
