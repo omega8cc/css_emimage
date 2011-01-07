@@ -127,7 +127,7 @@ function _css_emimage_process($styles) {
 
           // If the amount of data being embedded is within the inline limit, inline the data URIs;
           // otherwise, store the data URIs in a separate CSS file.
-          if ($datauri_total_length <= variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT)) {
+          if ($datauri_total_length && $datauri_total_length <= variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT)) {
             foreach ($declarations as $data) {
               if ($data['datauri']) {
                 $contents = str_replace($data['token'], $data['datauri'], $contents);
