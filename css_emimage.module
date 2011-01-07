@@ -2,6 +2,22 @@
 // $Id$
 
 /**
+ * @file
+ * CSS Embedded Images module.
+ */
+
+/**
+ * Internet Explorer limits data URIs to 32KB.
+ */
+define('CSS_EMIMAGE_IE_DATAURI_LIMIT', 32768);
+
+/**
+ * Limit the total data (in bytes) duplicate images can add to the CSS. If
+ * embedding a duplicate image exceeds this, it will not be embedded.
+ */
+define('CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT', 10240);
+
+/**
  * Implementation of hook_help().
  */
 function css_emimage_help($path, $arg) {
@@ -79,7 +95,7 @@ function _css_emimage_process($styles) {
 
       // Save the processed CSS file if it doesn't exist yet.
       if (!file_exists($emimage_file_path) || filemtime($aggregated_file_path) > filemtime($emimage_file_path)) {
-        _css_emimage_collect(NULL, TRUE);
+        _css_emimage_collect_static(array()); // Reset the processed declarations.
         $contents = $orig_contents = file_get_contents($aggregated_file_path);
         $datauri_css = '';
 
@@ -87,13 +103,29 @@ function _css_emimage_process($styles) {
         $contents = preg_replace_callback($pattern, '_css_emimage_replace', $contents);
 
         if (!is_null($contents)) {
-          foreach (_css_emimage_collect() as $data) {
+          list($declarations, $file_stats) = _css_emimage_collect_static();
+
+          // Check for duplicate images and exclude those exceeding our duplication limit.
+          foreach ($file_stats as $fs) {
+            if (count($fs['indices']) > 1 && $fs['total_length'] > variable_get('css_emimage_duplicate_embed_limit', CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT)) {
+              foreach ($fs['indices'] as $i) {
+                $declarations[$i]['datauri'] = '';
+              }
+            }
+          }
+
+          foreach ($declarations as $data) {
             if ($data['datauri']) {
+              $contents = str_replace($data['token'], 'none', $contents);
               $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
             }
             else if ($datauri_css) {
               // Only add these if the CSS has at least one data URI.
+              $contents = str_replace($data['token'], 'none', $contents);
               $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] . ($data['important'] ? ' !important' : '') .";}\n";
+            }
+            else {
+              $contents = str_replace($data['token'], $data['url'], $contents);
             }
           }
 
@@ -141,13 +173,11 @@ function _css_emimage_replace($matches) {
     $important = stripos($matches[4][$i], '!important') !== FALSE;
     if ($file && (strpos($file, base_path()) === 0) && ($image = image_get_info($file = substr($file, strlen(base_path()))))) {
       $ielimit = variable_get('css_emimage_ielimit', 1); // only embed data URIs less than 32KB, thanks IE
-      if (!$ielimit || ($ielimit && ($image['file_size']*1.3333) < 32768)) {
-        $declaration = str_replace($url, 'none', $declaration);
-        _css_emimage_collect(array($selector, $property, $url, $file, $important, $image));
+      if ($ielimit && ($image['file_size']*1.3333) >= CSS_EMIMAGE_IE_DATAURI_LIMIT) {
+        $image = NULL;
       }
-      else {
-        _css_emimage_collect(array($selector, $property, $url, $file, $important, NULL));
-      }
+      $token = _css_emimage_collect(array($selector, $property, $url, $file, $important, $image));
+      $declaration = str_replace($url, $token, $declaration);
     }
     else {
       _css_emimage_collect(array($selector, $property, $url, $file, $important, NULL));
@@ -158,15 +188,13 @@ function _css_emimage_replace($matches) {
 
 /**
  * Helper function to collect CSS declarations to replace with data URIs.
+ *
+ * @return string a token used during the replacement process
  */
-function _css_emimage_collect($info = NULL, $reset = FALSE) {
-  static $data = array();
-  if ($reset) {
-    $data = array();
-  }
-  if (is_null($info)) {
-    return $data;
-  }
+function _css_emimage_collect($info) {
+  list($declarations, $file_stats) = _css_emimage_collect_static();
+  if (!$declarations) $declarations = array();
+  if (!$file_stats) $file_stats = array();
 
   if (is_array($info)) {
     list($selector, $property, $url, $file, $important, $image) = $info;
@@ -179,12 +207,14 @@ function _css_emimage_collect($info = NULL, $reset = FALSE) {
       $property .= '-image';
     }
 
-    $current = array_pop($data);
+    $current = array_pop($declarations);
     switch (TRUE) {
       case $current && ($current['property'] != $property || $current['file'] != $file || $current['important'] != $important):
-        array_push($data, $current);
+        array_push($declarations, $current);
       case !$current:
+        $pos = count($declarations);
         $current = array(
+          'token' => "[css_emimage:$pos]",
           'selectors' => array($selector),
           'property' => $property,
           'url' => $url,
@@ -192,14 +222,36 @@ function _css_emimage_collect($info = NULL, $reset = FALSE) {
           'important' => $important,
           'datauri' => $image ? 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)). ')' : '',
         );
+        if ($current['datauri']) {
+          if (!isset($file_stats[$file])) {
+            $file_stats[$file] = array('indices' => array($pos), 'total_length' => strlen($current['datauri']));
+          }
+          else {
+            $file_stats[$file]['indices'][] = $pos;
+            $file_stats[$file]['total_length'] += strlen($current['datauri']);
+          }
+        }
         break;
       default:
         $current['selectors'][] = $selector;
         break;
     }
-    array_push($data, $current);
+
+    array_push($declarations, $current);
+    _css_emimage_collect_static(array($declarations, $file_stats));
+    return $current['token'];
   }
 
-  return $data;
+  return FALSE;
 }
 
+/**
+ * Helper function to store collected CSS declarations.
+ */
+function _css_emimage_collect_static($data = NULL) {
+  static $store = array();
+  if (!is_null($data)) {
+    $store = $data;
+  }
+  return $store;
+}
