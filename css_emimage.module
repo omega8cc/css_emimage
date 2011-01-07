@@ -18,6 +18,12 @@ define('CSS_EMIMAGE_IE_DATAURI_LIMIT', 32768);
 define('CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT', 10240);
 
 /**
+ * Limit the total size allowed for inline data URIs. Once this limit is
+ * exceeded, data URIs are placed in a separate CSS file.
+ */
+define('CSS_EMIMAGE_INLINE_DATAURI_LIMIT', 4096);
+
+/**
  * Implementation of hook_help().
  */
 function css_emimage_help($path, $arg) {
@@ -106,26 +112,47 @@ function _css_emimage_process($styles) {
           list($declarations, $file_stats) = _css_emimage_collect_static();
 
           // Check for duplicate images and exclude those exceeding our duplication limit.
+          // Sum the amount of data being embedded.
+          $datauri_total_length = 0;
           foreach ($file_stats as $fs) {
             if (count($fs['indices']) > 1 && $fs['total_length'] > variable_get('css_emimage_duplicate_embed_limit', CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT)) {
               foreach ($fs['indices'] as $i) {
                 $declarations[$i]['datauri'] = '';
               }
             }
+            else {
+              $datauri_total_length += $fs['total_length'];
+            }
           }
 
-          foreach ($declarations as $data) {
-            if ($data['datauri']) {
-              $contents = str_replace($data['token'], 'none', $contents);
-              $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
+          // If the amount of data being embedded is within the inline limit, inline the data URIs;
+          // otherwise, store the data URIs in a separate CSS file.
+          if ($datauri_total_length <= variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT)) {
+            foreach ($declarations as $data) {
+              if ($data['datauri']) {
+                $contents = str_replace($data['token'], $data['datauri'], $contents);
+              }
+              else {
+                $contents = str_replace($data['token'], $data['url'], $contents);
+              }
             }
-            else if ($datauri_css) {
-              // Only add these if the CSS has at least one data URI.
-              $contents = str_replace($data['token'], 'none', $contents);
-              $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] . ($data['important'] ? ' !important' : '') .";}\n";
-            }
-            else {
-              $contents = str_replace($data['token'], $data['url'], $contents);
+            $datauri_css = $contents;
+            $contents = '';
+          }
+          else {
+            foreach ($declarations as $data) {
+              if ($data['datauri']) {
+                $contents = str_replace($data['token'], 'none', $contents);
+                $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
+              }
+              else if ($datauri_css) {
+                // Only add these if the CSS has at least one data URI.
+                $contents = str_replace($data['token'], 'none', $contents);
+                $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] . ($data['important'] ? ' !important' : '') .";}\n";
+              }
+              else {
+                $contents = str_replace($data['token'], $data['url'], $contents);
+              }
             }
           }
 
@@ -150,7 +177,7 @@ function _css_emimage_process($styles) {
       // Replace the aggregated file with the processed CSS file.
       if (file_exists($emimage_file_path) && filesize($emimage_file_path)) {
         $styles = str_replace($matches[0][$i],
-          "<!--[if gte IE 8]><!-->\n". $matches[0][$i] ."\n". str_replace($aggregated_file_name, $emimage_file_name, $matches[0][$i]) ."\n<!--<![endif]-->\n"
+          "<!--[if gte IE 8]><!-->\n". (filesize($aggregated_file_path) ? $matches[0][$i] ."\n" : '') . str_replace($aggregated_file_name, $emimage_file_name, $matches[0][$i]) ."\n<!--<![endif]-->\n"
           . "<!--[if lt IE 8]>\n". str_replace($aggregated_file_name, $orig_file_name, $matches[0][$i]) ."\n<![endif]-->",
           $styles);
       }

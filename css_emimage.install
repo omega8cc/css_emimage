@@ -21,4 +21,5 @@ function css_emimage_install() {
 function css_emimage_uninstall() {
   variable_del('css_emimage_ielimit');
   variable_del('css_emimage_duplicate_embed_limit');
+  variable_del('css_emimage_inline_datauri_limit');
 }
