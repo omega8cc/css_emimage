@@ -131,35 +131,23 @@ function _css_emimage_process($styles) {
             }
           }
 
+          list($ext_contents, $ext_data) = _css_emimage_build_external($contents, $declarations);
+
           // If the amount of data being embedded is within the inline limit, inline the data URIs;
           // otherwise, store the data URIs in a separate CSS file.
           if (variable_get('css_emimage_force_inline', 0) || ($datauri_total_length && $datauri_total_length <= variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT))) {
-            foreach ($declarations as $data) {
-              if ($data['datauri']) {
-                $contents = str_replace($data['token'], $data['datauri'], $contents);
-              }
-              else {
-                $contents = str_replace($data['token'], $data['url'], $contents);
-              }
+            $inline = _css_emimage_build_inline($contents, $declarations);
+            if (strlen($inline) < (strlen($ext_contents) + strlen($ext_data))) {
+              $datauri_css = $inline;
             }
-            $datauri_css = $contents;
+            else {
+              $datauri_css = "$ext_contents\n$ext_data";
+            }
             $contents = '';
           }
           else {
-            foreach ($declarations as $data) {
-              if ($data['datauri']) {
-                $contents = str_replace($data['token'], 'none', $contents);
-                $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
-              }
-              else if ($datauri_css) {
-                // Only add these if the CSS has at least one data URI.
-                $contents = str_replace($data['token'], 'none', $contents);
-                $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] . ($data['important'] ? ' !important' : '') .";}\n";
-              }
-              else {
-                $contents = str_replace($data['token'], $data['url'], $contents);
-              }
-            }
+            $contents = $ext_contents;
+            $datauri_css = $ext_data;
           }
 
           // Save the modified aggregated CSS file.
@@ -287,4 +275,46 @@ function _css_emimage_collect_static($data = NULL) {
     $store = $data;
   }
   return $store;
+}
+
+/**
+ * Generates CSS with data URIs inline with the declarations.
+ *
+ * @return string CSS with inline data URIs
+ */
+function _css_emimage_build_inline($css, $declarations) {
+  foreach ($declarations as $data) {
+    if ($data['datauri']) {
+      $css = str_replace($data['token'], $data['datauri'], $css);
+    }
+    else {
+      $css = str_replace($data['token'], $data['url'], $css);
+    }
+  }
+  return $css;
+}
+
+/**
+ * Generates CSS with external data URIs.
+ *
+ * @return array a tuple where the first element is the updated CSS and the
+ *     second element is the CSS declarations containing only data URIs
+ */
+function _css_emimage_build_external($css, $declarations) {
+  $datauri_css = '';
+  foreach ($declarations as $data) {
+    if ($data['datauri']) {
+      $css = str_replace($data['token'], 'none', $css);
+      $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
+    }
+    else if ($datauri_css) {
+      // Only add these if the CSS has at least one data URI.
+      $css = str_replace($data['token'], 'none', $css);
+      $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['url'] . ($data['important'] ? ' !important' : '') .";}\n";
+    }
+    else {
+      $css = str_replace($data['token'], $data['url'], $css);
+    }
+  }
+  return array($css, $datauri_css);
 }
