@@ -122,8 +122,8 @@ function _css_emimage_process($styles) {
           $datauri_total_length = 0;
           foreach ($file_stats as $fs) {
             if (count($fs['indices']) > 1 && $fs['total_length'] > variable_get('css_emimage_duplicate_embed_limit', CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT)) {
-              foreach ($fs['indices'] as $i) {
-                $declarations[$i]['datauri'] = '';
+              foreach ($fs['indices'] as $fsi) {
+                $declarations[$fsi]['datauri'] = '';
               }
             }
             else {
