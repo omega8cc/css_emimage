@@ -39,15 +39,21 @@ function css_emimage_help($path, $arg) {
  */
 function css_emimage_form_alter(&$form, &$form_state, $form_id) {
   if ($form_id == 'system_performance_settings') {
-    $form['bandwidth_optimizations']['preprocess_css']['#description'] = (isset($form['bandwidth_optimizations']['preprocess_css']['#description'])
-      ? $form['bandwidth_optimizations']['preprocess_css']['#description'] .' '
-      : '')
-      . t('Once the CSS files have been aggregated, image URLs will be replaced with embedded images.');
-    $form['bandwidth_optimizations']['css_emimage_ielimit'] = array(
-      '#type' => 'checkbox',
-      '#title' => t('Only embed images less than 32KB'),
-      '#description' => t('Internet Explorer does not support embedded images larger than 32KB. If you are not concerned about IE support you can ignore this limitation; otherwise, it is best to leave this checked.'),
-      '#default_value' => variable_get('css_emimage_ielimit', 1),
+    $form['bandwidth_optimizations']['css_emimage'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('CSS Embedded Images'),
+      'css_emimage_force_inline' => array(
+        '#type' => 'checkbox',
+        '#title' => t('Always inline embedded images'),
+        '#description' => t('By default CSS Embedded Images places image data exceeding !limit in a CSS file separate from the rest of the site styles. This allows for parallel rendering of site styles while the relatively large image data is in transit, providing an improved user experience (especially for visitors with slow connections). Enabling this option will force images to always be embedded inline, similar to the 6.x-1.x behavior; however, this is not recommended.', array('!limit' => format_size(variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT)))),
+        '#default_value' => variable_get('css_emimage_force_inline', 0),
+      ),
+      'css_emimage_ielimit' => array(
+        '#type' => 'checkbox',
+        '#title' => t('Only embed images less than 32KB'),
+        '#description' => t('Internet Explorer does not support embedded images larger than 32KB. If you are not concerned about IE support you can ignore this limitation; otherwise, it is best to leave this checked.'),
+        '#default_value' => variable_get('css_emimage_ielimit', 1),
+      ),
     );
   }
 }
@@ -127,7 +133,7 @@ function _css_emimage_process($styles) {
 
           // If the amount of data being embedded is within the inline limit, inline the data URIs;
           // otherwise, store the data URIs in a separate CSS file.
-          if ($datauri_total_length && $datauri_total_length <= variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT)) {
+          if (variable_get('css_emimage_force_inline', 0) || ($datauri_total_length && $datauri_total_length <= variable_get('css_emimage_inline_datauri_limit', CSS_EMIMAGE_INLINE_DATAURI_LIMIT))) {
             foreach ($declarations as $data) {
               if ($data['datauri']) {
                 $contents = str_replace($data['token'], $data['datauri'], $contents);
