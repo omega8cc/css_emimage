@@ -24,6 +24,11 @@ define('CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT', 10240);
 define('CSS_EMIMAGE_INLINE_DATAURI_LIMIT', 4096);
 
 /**
+ * The separator to use between MHTML parts.
+ */
+define('CSS_EMIMAGE_MHTML_SEPARATOR', '_SEP');
+
+/**
  * Implementation of hook_help().
  */
 function css_emimage_help($path, $arg) {
@@ -100,10 +105,10 @@ function _css_emimage_process($styles) {
     foreach ($matches[2] as $i => $aggregated_file_name) {
       $file_path = file_directory_path();
       $aggregated_file_path = $file_path . $aggregated_file_name;
-      $orig_file_name = str_replace('.css', '.orig.css', $aggregated_file_name);
-      $orig_file_path = $file_path . $orig_file_name;
       $emimage_file_name = str_replace('.css', '.emimage.css', $aggregated_file_name);
       $emimage_file_path = $file_path . $emimage_file_name;
+      $mhtml_file_name = str_replace('.css', '.mhtml.css', $aggregated_file_name);
+      $mhtml_file_path = $file_path . $mhtml_file_name;
 
       // Save the processed CSS file if it doesn't exist yet.
       if (!file_exists($emimage_file_path) || filemtime($aggregated_file_path) > filemtime($emimage_file_path)) {
@@ -117,13 +122,17 @@ function _css_emimage_process($styles) {
         if (!is_null($contents)) {
           list($declarations, $file_stats) = _css_emimage_collect_static();
 
+          // Generate MHTML for IE.
+          // We do this before checking for duplicate images because MHTML can handle duplicates efficiently.
+          $mhtml_css = _css_emimage_build_mhtml_css(url($mhtml_file_path, array('absolute' => TRUE)), $contents, $declarations, $file_stats);
+
           // Check for duplicate images and exclude those exceeding our duplication limit.
           // Sum the amount of data being embedded.
           $datauri_total_length = 0;
           foreach ($file_stats as $fs) {
             if (count($fs['indices']) > 1 && $fs['total_length'] > variable_get('css_emimage_duplicate_embed_limit', CSS_EMIMAGE_DUPLICATE_EMBED_LIMIT)) {
               foreach ($fs['indices'] as $fsi) {
-                $declarations[$fsi]['datauri'] = '';
+                $declarations[$fsi]['base64'] = '';
               }
             }
             else {
@@ -152,8 +161,8 @@ function _css_emimage_process($styles) {
 
           // Save the modified aggregated CSS file.
           file_save_data($contents, $aggregated_file_path, FILE_EXISTS_REPLACE);
-          // Save a copy of the original CSS for IE < 8 fallback.
-          file_save_data($orig_contents, $orig_file_path, FILE_EXISTS_REPLACE);
+          // Save MHTML for IE.
+          file_save_data($mhtml_css, $mhtml_file_path, FILE_EXISTS_REPLACE);
         }
         else {
           $error_code = preg_last_error();
@@ -172,7 +181,7 @@ function _css_emimage_process($styles) {
       if (file_exists($emimage_file_path) && filesize($emimage_file_path)) {
         $styles = str_replace($matches[0][$i],
           "<!--[if gte IE 8]><!-->\n". (filesize($aggregated_file_path) ? $matches[0][$i] ."\n" : '') . str_replace($aggregated_file_name, $emimage_file_name, $matches[0][$i]) ."\n<!--<![endif]-->\n"
-          . "<!--[if lt IE 8]>\n". str_replace($aggregated_file_name, $orig_file_name, $matches[0][$i]) ."\n<![endif]-->",
+          . "<!--[if lt IE 8]>\n". str_replace($aggregated_file_name, $mhtml_file_name, $matches[0][$i]) ."\n<![endif]-->",
           $styles);
       }
     }
@@ -235,21 +244,23 @@ function _css_emimage_collect($info) {
       case !$current:
         $pos = count($declarations);
         $current = array(
+          'pos' => $pos,
           'token' => "[css_emimage:$pos]",
           'selectors' => array($selector),
           'property' => $property,
           'url' => $url,
           'file' => $file,
           'important' => $important,
-          'datauri' => $image ? 'url(data:'. $image['mime_type'] .';base64,'. base64_encode(file_get_contents($file)) .')' : '',
+          'base64' => $image ? base64_encode(file_get_contents($file)) : '',
+          'mime_type' => $image ? $image['mime_type'] : '',
         );
-        if ($current['datauri']) {
+        if ($current['base64']) {
           if (!isset($file_stats[$file])) {
-            $file_stats[$file] = array('indices' => array($pos), 'total_length' => strlen($current['datauri']));
+            $file_stats[$file] = array('indices' => array($pos), 'total_length' => strlen($current['base64']));
           }
           else {
             $file_stats[$file]['indices'][] = $pos;
-            $file_stats[$file]['total_length'] += strlen($current['datauri']);
+            $file_stats[$file]['total_length'] += strlen($current['base64']);
           }
         }
         break;
@@ -284,8 +295,8 @@ function _css_emimage_collect_static($data = NULL) {
  */
 function _css_emimage_build_inline($css, $declarations) {
   foreach ($declarations as $data) {
-    if ($data['datauri']) {
-      $css = str_replace($data['token'], $data['datauri'], $css);
+    if ($data['base64']) {
+      $css = str_replace($data['token'], 'url(data:'. $data['mime_type'] .';base64,'. $data['base64'] .')', $css);
     }
     else {
       $css = str_replace($data['token'], $data['url'], $css);
@@ -303,9 +314,9 @@ function _css_emimage_build_inline($css, $declarations) {
 function _css_emimage_build_external($css, $declarations) {
   $datauri_css = '';
   foreach ($declarations as $data) {
-    if ($data['datauri']) {
+    if ($data['base64']) {
       $css = str_replace($data['token'], 'none', $css);
-      $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':'. $data['datauri'] . ($data['important'] ? ' !important' : '') .";}\n";
+      $datauri_css .= implode(',', $data['selectors']) .'{'. $data['property'] .':url(data:'. $data['mime_type'] .';base64,'. $data['base64'] .')' . ($data['important'] ? ' !important' : '') .";}\n";
     }
     else if ($datauri_css) {
       // Only add these if the CSS has at least one data URI.
@@ -317,4 +328,59 @@ function _css_emimage_build_external($css, $declarations) {
     }
   }
   return array($css, $datauri_css);
+}
+
+/**
+ * Generates MHTML for IE.
+ *
+ * @return string MHTML containing CSS and embedded images for IE
+ */
+function _css_emimage_build_mhtml_css($mhtml_url, $css, $declarations, $file_stats) {
+  $mhtml_css = 'Content-Type: multipart/related; type="text/css"; boundary="'. CSS_EMIMAGE_MHTML_SEPARATOR .'"'."\r\n\r\n\r\n"
+    . "--". CSS_EMIMAGE_MHTML_SEPARATOR ."\r\n"
+    . "Content-Location: $mhtml_url\r\n"
+    . "Content-Transfer-Encoding: quoted-printable\r\n"
+    . "Content-Type: text/css\r\n\r\n"
+    . $css;
+  $mhtml_data = _css_emimage_build_mhtml_data($mhtml_url, $declarations, $file_stats);
+  foreach ($declarations as $i => $data) {
+    if ($data['mhtml_url']) {
+      $mhtml_css = str_replace($data['token'], 'url('. $data['mhtml_url'] .')', $mhtml_css);
+    }
+    else {
+      $mhtml_css = str_replace($data['token'], $data['url'], $mhtml_css);
+    }
+  }
+  $mhtml_css .= "\r\n$mhtml_data--". CSS_EMIMAGE_MHTML_SEPARATOR . "--\r\n";
+  return $mhtml_css;
+}
+
+/**
+ * Generates the MHTML embedded image parts, ensuring repeated images are only
+ * embedded once.
+ *
+ * @return string MHTML embedded image parts
+ */
+function _css_emimage_build_mhtml_data($mhtml_url, &$declarations, $file_stats) {
+  $mhtml_data = '';
+  $offset = 0;
+  foreach ($file_stats as $file => $fs) {
+    $data_added = false;
+    foreach ($fs['indices'] as $fsi) {
+      $data = $declarations[$fsi];
+      if ($data['base64']) {
+        $declarations[$fsi]['mhtml_url'] = 'mhtml:'. $mhtml_url .'!i'. $offset;
+        if (!$data_added) {
+          $mhtml_data .= "--". CSS_EMIMAGE_MHTML_SEPARATOR ."\r\n"
+            . "Content-Location: i$offset\r\n"
+            . "Content-Type: {$data['mime_type']}\r\n"
+            . "Content-Transfer-Encoding: base64\r\n\r\n\r\n"
+            . $data['base64'] . "\r\n";
+          $data_added = true;
+        }
+      }
+    }
+    ++$offset;
+  }
+  return $mhtml_data;
 }
