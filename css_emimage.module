@@ -336,23 +336,30 @@ function _css_emimage_build_external($css, $declarations) {
  * @return string MHTML containing CSS and embedded images for IE
  */
 function _css_emimage_build_mhtml_css($mhtml_url, $css, $declarations, $file_stats) {
-  $mhtml_css = 'Content-Type: multipart/related; type="text/css"; boundary="'. CSS_EMIMAGE_MHTML_SEPARATOR .'"'."\r\n\r\n\r\n"
-    . "--". CSS_EMIMAGE_MHTML_SEPARATOR ."\r\n"
-    . "Content-Location: $mhtml_url\r\n"
-    . "Content-Transfer-Encoding: quoted-printable\r\n"
-    . "Content-Type: text/css\r\n\r\n"
-    . $css;
   $mhtml_data = _css_emimage_build_mhtml_data($mhtml_url, $declarations, $file_stats);
-  foreach ($declarations as $i => $data) {
-    if ($data['mhtml_url']) {
-      $mhtml_css = str_replace($data['token'], 'url('. $data['mhtml_url'] .')', $mhtml_css);
+  if ($mhtml_data) {
+    $mhtml_css = "MIME-Version: 1.0\r\nContent-Type: multipart/related; type=\"text/css\"; boundary=\"". CSS_EMIMAGE_MHTML_SEPARATOR ."\"\r\n\r\n"
+      . "--". CSS_EMIMAGE_MHTML_SEPARATOR ."\r\n"
+      . "Content-Type: text/css\r\n"
+      . "Content-Location: $mhtml_url\r\n"
+      . "Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+      // For some reason, the first declaration has a bad habit of being ignored by IE.
+      // Add an empty declaration to avoid the issue.
+      . "body{}$css\r\n";
+    foreach ($declarations as $i => $data) {
+      if (isset($data['mhtml_url'])) {
+        $mhtml_css = str_replace($data['token'], 'url('. $data['mhtml_url'] .')', $mhtml_css);
+      }
+      else {
+        $mhtml_css = str_replace($data['token'], $data['url'], $mhtml_css);
+      }
     }
-    else {
-      $mhtml_css = str_replace($data['token'], $data['url'], $mhtml_css);
-    }
+    $mhtml_css .= "\r\n$mhtml_data--". CSS_EMIMAGE_MHTML_SEPARATOR . "--\r\n";
+    return $mhtml_css;
   }
-  $mhtml_css .= "\r\n$mhtml_data--". CSS_EMIMAGE_MHTML_SEPARATOR . "--\r\n";
-  return $mhtml_css;
+
+  // No images to be embedded, return the unmodified CSS.
+  return $css;
 }
 
 /**
@@ -374,8 +381,8 @@ function _css_emimage_build_mhtml_data($mhtml_url, &$declarations, $file_stats) 
           $mhtml_data .= "--". CSS_EMIMAGE_MHTML_SEPARATOR ."\r\n"
             . "Content-Location: i$offset\r\n"
             . "Content-Type: {$data['mime_type']}\r\n"
-            . "Content-Transfer-Encoding: base64\r\n\r\n\r\n"
-            . $data['base64'] . "\r\n";
+            . "Content-Transfer-Encoding: base64\r\n\r\n"
+            . $data['base64'] . "\r\n\r\n";
           $data_added = true;
         }
       }
