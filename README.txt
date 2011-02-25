@@ -1,4 +1,3 @@
-$Id$
 
 CSS Embedded Images for Drupal 6
 ==================================
