@@ -98,6 +98,7 @@ function css_emimage_preprocess_page(&$variables) {
  * Helper function to replace URLs with data URIs.
  */
 function _css_emimage_process($styles) {
+  global $base_url;
   $path_to_files_directory = base_path() . file_directory_path();
   $pattern = '/<link(.*?)href=".*?'. preg_quote($path_to_files_directory, '/') .'(.*?)(\?[^"]*)?"(.*?)\\/>/';
   if (preg_match_all($pattern, $styles, $matches) > 0) {
@@ -123,7 +124,7 @@ function _css_emimage_process($styles) {
 
           // Generate MHTML for IE.
           // We do this before checking for duplicate images because MHTML can handle duplicates efficiently.
-          $mhtml_css = _css_emimage_build_mhtml_css(url($mhtml_file_path, array('absolute' => TRUE)), $contents, $declarations, $file_stats);
+          $mhtml_css = _css_emimage_build_mhtml_css("$base_url/$mhtml_file_path", $contents, $declarations, $file_stats);
 
           // Check for duplicate images and exclude those exceeding our duplication limit.
           // Sum the amount of data being embedded.
