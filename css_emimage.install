@@ -9,6 +9,8 @@
  * Implementation of hook_install().
  */
 function css_emimage_install() {
+  drupal_install_schema('css_emimage');
+
   // Set the module's weight high so that it runs after other modules.
   db_query("UPDATE {system} SET weight = 9999 WHERE name = 'css_emimage' AND type = 'module'");
   cache_clear_all();
@@ -22,4 +24,34 @@ function css_emimage_uninstall() {
   variable_del('css_emimage_force_inline');
   variable_del('css_emimage_duplicate_embed_limit');
   variable_del('css_emimage_inline_datauri_limit');
+
+  drupal_uninstall_schema('css_emimage');
+}
+
+/**
+ * Implementation of hook_schema.
+ */
+function css_emimage_schema() {
+  $schema['css_emimage_advagg'] = array(
+    'description' => t('Bundle names and what they type they are.'),
+    'fields' => array(
+      'bundle_md5' => array(
+        'description' => 'MD5 hash of the bundles list of files',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'type' => array(
+        'description' => 'What type of css file this is',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('bundle_md5', 'type'),
+  );
+
+  return $schema;
 }
